@@ -1,0 +1,174 @@
+import os
+import numpy as np
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+import random
+
+
+def tiff2tpsfs(p):
+    k = os.listdir(p)
+    le = len(k)
+    img0 = mpimg.imread(os.path.join(p, k[0]))
+    (a, b) = np.shape(img0)
+    tpsfs = np.zeros([a, b, le - 1])
+
+    for count, file in enumerate(os.listdir(p)):
+        # Check whether file is in text format or not
+        if file.endswith(".tif"):
+            imt = mpimg.imread(os.path.join(p, file))
+            tpsfs[:, :, count] = imt
+
+    inten = np.sum(tpsfs, axis=2)
+    return tpsfs, inten
+
+
+def activeArea(image):
+    t1, t2 = np.shape(image)
+    grad_rows = np.zeros([t2 - 1])
+    grad_columns = np.zeros([t1 - 1])
+    for i in range(t1 - 1):
+        grad_columns[i] = np.sum(image[i + 1, :] - image[i, :])
+    for j in range(t2 - 1):
+        grad_rows[j] = np.sum(image[:, j + 1] - image[:, j])
+    Iy1 = np.argmax(grad_columns)
+    grad_columns1 = grad_columns[Iy1:-1].copy()
+    Iy2 = np.argmin(grad_columns1)
+    Ix1 = np.argmax(grad_rows)
+    grad_rows1 = grad_rows[Ix1:-1].copy()
+    Ix2 = np.argmin(grad_rows1)
+
+    yrange = np.arange(Iy1, Iy1 + Iy2)
+    xrange = np.arange(Ix1, Ix1 + Ix2)
+    return yrange, xrange
+
+
+def showMat2d(img, z=1):
+    if len(np.shape(img)) == 2:
+        plt.imshow(img)
+        plt.colorbar()
+        if z == 0:
+            plt.axis('off')  # putting all the  axis information off simultaneously
+        plt.title('coming from 2D')
+        plt.show()
+    elif len(np.shape(img)) == 3:
+        img_temp = np.sum(img, axis=2)
+        plt.imshow(img_temp)
+        plt.colorbar()
+        if z == 0:
+            plt.axis('off')  # putting all the  axis information off simultaneously
+        plt.title('coming from 3D')
+        plt.show()
+    else:
+        print('The size of matrix is inadequate to show in Image')
+
+
+def plotMat3d(mat3d, px, py):  # to plot gates at a pixel (px,py)
+    y = mat3d[px, py, :]
+    plt.plot(y)
+    plt.title('plot at {},{}'.format(px, py))
+    plt.show()
+
+
+def plotMat4d(mat4d, px, py):
+    a = mat4d.shape[3]
+    a4 = random.randint(0, a - 1)
+    y = mat4d[px, py, :, a4]
+    plt.plot(y)
+    plt.title('plot at {},{} of fraction {}'.format(px, py, a4))
+    plt.show()
+
+
+def crop(img, xrange, yrange):
+    if len(np.shape(img)) == 2:
+        crp_img = img[yrange[0]:yrange[-1] + 1, xrange[0]:xrange[-1] + 1].copy()
+    elif len(np.shape(img)) == 3:
+        crp_img = img[yrange[0]:yrange[-1] + 1, xrange[0]:xrange[-1] + 1, :].copy()
+    elif len(np.shape(img)) == 4:
+        crp_img = img[yrange[0]:yrange[-1] + 1, xrange[0]:xrange[-1] + 1, :, :].copy()
+    else:
+        print('the size is not adequate')
+    return crp_img
+
+
+def img_subdivision(img, div=20):
+    x, y, z = np.shape(img)
+    xrem = x % div
+    yrem = y % div
+    xquo = x // div
+    yquo = y // div
+    if xrem % 2 == 0:
+        xrange = np.arange(int(xrem / 2), x - int(xrem / 2))
+    else:
+        xrange = np.arange(int((xrem + 1) / 2), x - int((xrem - 1) / 2))
+    if yrem % 2 == 0:
+        yrange = np.arange(int(yrem / 2), y - int(yrem / 2))
+    else:
+        yrange = np.arange(int((yrem + 1) / 2), y - int((yrem - 1) / 2))
+    img_crp = crop(img, yrange, xrange)
+    A = np.zeros([div, div, z, xquo * yquo])
+    for i in range(xquo):
+        for j in range(yquo):
+            ax1 = div * i
+            ay1 = div * j
+            A[:, :, :, (i * yquo) + j] = img_crp[ax1: ax1 + div, ay1: ay1 + div, :].copy()
+    return A, xquo, yquo, yrange, xrange  # yrange and xrange from this must be fed for new IRF crop
+
+
+def img_stitch(A, xquo, yquo):
+    f1, f2, f3, f4 = np.shape(A)
+    w1 = xquo * f1
+    w2 = yquo * f2
+    img = np.zeros([w1, w2, f3])
+    for i in range(xquo):
+        for j in range(yquo):
+            ax1 = f1 * i
+            ay1 = f2 * j
+            img[ax1: ax1 + f1, ay1: ay1 + f2, :] = A[:, :, :, (i * yquo) + j]
+    return img
+
+
+def div_show(img, div=20):
+    A, ros, cols, yrange, xrange = img_subdivision(img, div)
+    # g = len(np.shape(A))
+    fig, axs = plt.subplots(nrows=ros, ncols=cols, figsize=(ros, cols))
+    i = 0
+    for ax in axs.flat:
+        img_temp = np.sum(np.squeeze(A[:, :, :, i]), axis=2)
+        ax.imshow(img_temp)
+        ax.axis('off')
+        i += 1
+    # plt.tight_layout()
+    plt.show()
+
+
+def thres(img, threshold):
+    im1 = 'this is not valid'
+    if len(img.shape) == 2:
+        b1, b2 = np.shape(img)
+        im1 = np.zeros([b1, b2])
+        print('the threshold has been set to {}'.format(threshold))
+        for i in range(b1):
+            for j in range(b2):
+                if img[i, j] > threshold:
+                    im1[i, j] = img[i, j]
+                    
+    if len(img.shape) == 3:
+        b1, b2, b3 = np.shape(img)
+        im1 = np.zeros([b1, b2, b3])
+        print('the threshold has been set to {}'.format(threshold))
+        for i in range(b1):
+            for j in range(b2):
+                if np.amax(img[i, j, :]) > threshold:
+                    im1[i, j, :] = img[i, j, :].copy()
+                    
+    if len(img.shape) == 4:
+        b1, b2, b3, b4 = np.shape(img)
+        im1 = np.zeros([b1, b2, b3, b4])
+        print('the threshold has been set to {}'.format(threshold))
+        for k in range (b4):
+            for i in range(b1):
+                for j in range(b2):
+                    if np.amax(img[i, j, :, k]) > threshold:
+                        im1[i, j, :, k] = img[i, j, :, k].copy()
+                    
+    return im1
